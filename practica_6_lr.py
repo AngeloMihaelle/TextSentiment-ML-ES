@@ -58,7 +58,7 @@ def lexicon_features(text, lexicon_dict):
         tuple: A tuple containing the lexicon features.
     """
     words = text.split()
-    nula, baja, media, alta, pfa = 0, 0, 0, 0, 0.0
+    nula, baja, media, alta, pfa, categoria = 0, 0, 0, 0, 0.0, ""
     for word in words:
         if word in lexicon_dict:
             nula += lexicon_dict[word]['Nula']
@@ -66,6 +66,7 @@ def lexicon_features(text, lexicon_dict):
             media += lexicon_dict[word]['Media']
             alta += lexicon_dict[word]['Alta']
             pfa += lexicon_dict[word]['PFA']
+            categoria += lexicon_dict[word]['Categoria'] if lexicon_dict[word]['Categoria'] != 'nan' else ''
     total_words = len(words)
     if total_words > 0:
         nula /= total_words
@@ -73,7 +74,7 @@ def lexicon_features(text, lexicon_dict):
         media /= total_words
         alta /= total_words
         pfa /= total_words
-    return nula, baja, media, alta, pfa, lexicon_dict[word]['Categoría']
+    return nula, baja, media, alta, pfa, categoria
 
 def preprocess_text(text, lexicon_dict):
     """
