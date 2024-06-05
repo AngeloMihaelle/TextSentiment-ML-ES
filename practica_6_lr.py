@@ -24,7 +24,16 @@ nlp = spacy.load('es_core_news_sm')
 stop_words = set(stopwords.words('spanish'))
 
 def load_lexicon(filepath):
-    lexicon = pd.read_csv(filepath,encoding='utf-8')
+    """
+    Loads the lexicon from a CSV file and returns it as a dictionary.
+
+    Args:
+        filepath (str): The path to the CSV file.
+
+    Returns:
+        dict: A dictionary containing the lexicon.
+    """
+    lexicon = pd.read_csv(filepath, encoding='utf-8')
     lexicon_dict = {}
     for _, row in lexicon.iterrows():
         lexicon_dict[row['Palabra']] = {
@@ -38,6 +47,16 @@ def load_lexicon(filepath):
     return lexicon_dict
 
 def lexicon_features(text, lexicon_dict):
+    """
+    Extracts lexicon features from the given text using the provided lexicon dictionary.
+
+    Args:
+        text (str): The input text.
+        lexicon_dict (dict): A dictionary containing the lexicon.
+
+    Returns:
+        tuple: A tuple containing the lexicon features.
+    """
     words = text.split()
     nula, baja, media, alta, pfa = 0, 0, 0, 0, 0.0
     for word in words:
@@ -57,6 +76,16 @@ def lexicon_features(text, lexicon_dict):
     return nula, baja, media, alta, pfa, lexicon_dict[word]['Categoría']
 
 def preprocess_text(text, lexicon_dict):
+    """
+    Preprocesses the given text by applying various text preprocessing techniques.
+
+    Args:
+        text (str): The input text.
+        lexicon_dict (dict): A dictionary containing the lexicon.
+
+    Returns:
+        tuple: A tuple containing the preprocessed text and lexicon features.
+    """
     # Lowercase
     text = text.lower()
     # Remove punctuation
@@ -67,13 +96,13 @@ def preprocess_text(text, lexicon_dict):
     doc = nlp(text)
     text = ' '.join([token.lemma_ for token in doc])
     # Extract lexicon features
-    nula, baja, media, alta, pfa = lexicon_features(text, lexicon_dict)
+    nula, baja, media, alta, pfa, categoria = lexicon_features(text, lexicon_dict)
     
     # Agregar manejo de negacion
     
     
     
-    return text, nula, baja, media, alta, pfa
+    return text, nula, baja, media, alta, pfa, categoria
 
 def preprocess_dataframe(df, lexicon_dict):
     """
@@ -97,74 +126,79 @@ def preprocess_dataframe(df, lexicon_dict):
     df['Categoría'] = features.apply(lambda x: x[6])
     return df
 
+def main():
+    # Define the path to the corpus and lexicon
+    corpus = 'Rest_Mex_2022.xlsx'
+    lexicon = 'SEL_full.csv'
+
+    # Load data and lexicon, preprocess data, and verify if the data is available in a pickle file
+    try:
+        data = pd.read_pickle(f'proccessed_dataframe_{corpus}.pkl')
+        print("Data loaded successfully.")
+        print(data.head())
+    except FileNotFoundError:
+        data = pd.read_excel(corpus)
+        print("Data loaded successfully.")
+        print(data.head())
+
+        lexicon_dict = load_lexicon(lexicon)
+        print("Lexicon loaded successfully.")
+
+        data = preprocess_dataframe(data, lexicon_dict)
+        print("Data preprocessed successfully.")
+        print(data.head())
+
+        data.to_pickle(f'proccessed_dataframe_{corpus}.pkl')
+        print("Data saved successfully.")
 
 
-corpus = 'Rest_Mex_2022.xlsx'
-lexicon = 'SEL_full.csv'
+    # Ensure the expected columns are present
+    expected_columns = ['text', 'nula', 'baja', 'media', 'alta', 'pfa']
+    for column in expected_columns:
+        if column not in data.columns:
+            raise ValueError(f"Missing column: {column}")
 
-# Load data and lexicon, preprocess data, and verify if the data is available in a pickle file
-try:
-    data = pd.read_pickle(f'proccessed_dataframe_{corpus}.pkl')
-    print("Data loaded successfully.")
-    print(data.head())
-except FileNotFoundError:
-    data = pd.read_excel(corpus)
-    print("Data loaded successfully.")
-    print(data.head())
+    X = data[['text', 'nula', 'baja', 'media', 'alta', 'pfa']]
+    y = data['Polarity']
 
-    lexicon_dict = load_lexicon(lexicon)
-    print("Lexicon loaded successfully.")
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=0)
 
-    data = preprocess_dataframe(data, lexicon_dict)
-    print("Data preprocessed successfully.")
-    print(data.head())
+    # Define the pipeline with feature union
+    text_transformer = Pipeline(steps=[
+        ('tfidf', TfidfVectorizer())
+    ])
 
-    data.to_pickle(f'proccessed_dataframe_{corpus}.pkl')
-    print("Data saved successfully.")
+    # Define the preprocessor
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('text', text_transformer, 'text'),
+            ('numeric', StandardScaler(), ['nula', 'baja', 'media', 'alta', 'pfa'])
+        ]
+    )
+
+    # Integrate SMOTE into the pipeline using imbalanced-learn's Pipeline
+    pipeline = ImbPipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('smote', SMOTE()),
+        ('classifier', LogisticRegression(C=3,solver='lbfgs', random_state=0, max_iter=10000, n_jobs=-1))
+    ])
+
+    # Cross-validation
+    cv = KFold(n_splits=5, random_state=0, shuffle=True)
+    scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring='f1_macro', n_jobs=-1)
+    print(f'Average F1 Macro Score (cross-validation): {scores.mean()}')
+
+    # Train the model on full training data
+    pipeline.fit(X_train, y_train)
+
+    # Evaluate on test set
+    y_pred = pipeline.predict(X_test)
+    f1 = f1_score(y_test, y_pred, average='macro')
+    print(f'Test F1 Macro Score: {f1}')
+    print("Classification Report:\n", classification_report(y_test, y_pred))
+    print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
 
-# Ensure the expected columns are present
-expected_columns = ['text', 'nula', 'baja', 'media', 'alta', 'pfa']
-for column in expected_columns:
-    if column not in data.columns:
-        raise ValueError(f"Missing column: {column}")
-
-X = data[['text', 'nula', 'baja', 'media', 'alta', 'pfa']]
-y = data['Polarity']
-
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=0)
-
-# Define the pipeline with feature union
-text_transformer = Pipeline(steps=[
-    ('tfidf', TfidfVectorizer())
-])
-
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('text', text_transformer, 'text'),
-        ('numeric', StandardScaler(), ['nula', 'baja', 'media', 'alta', 'pfa'])
-    ]
-)
-
-# Integrate SMOTE into the pipeline using imbalanced-learn's Pipeline
-pipeline = ImbPipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('smote', SMOTE()),
-    ('classifier', LogisticRegression(C=3,solver='lbfgs', random_state=0, max_iter=10000, n_jobs=-1))
-])
-
-# Cross-validation
-cv = KFold(n_splits=5, random_state=0, shuffle=True)
-scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring='f1_macro', n_jobs=-1)
-print(f'Average F1 Macro Score (cross-validation): {scores.mean()}')
-
-# Train the model on full training data
-pipeline.fit(X_train, y_train)
-
-# Evaluate on test set
-y_pred = pipeline.predict(X_test)
-f1 = f1_score(y_test, y_pred, average='macro')
-print(f'Test F1 Macro Score: {f1}')
-print("Classification Report:\n", classification_report(y_test, y_pred))
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+if __name__ == '__main__':
+    main()
