@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "run python file",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${file}"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "notify",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/.vscode/notify.py"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "run python file"
+            ]
+        }
+    ]
+}
