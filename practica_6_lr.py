@@ -12,10 +12,13 @@ from imblearn.over_sampling import SMOTE
 import spacy
 from nltk.corpus import stopwords
 import nltk
+from nltk.corpus import wordnet
 from imblearn.pipeline import Pipeline as ImbPipeline
 
 # Download NLTK data
 nltk.download('stopwords')
+nltk.download('omw')
+nltk.download('wordnet')
 
 # Load Spacy model
 nlp = spacy.load('es_core_news_sm')
@@ -66,7 +69,7 @@ def lexicon_features(text, lexicon_dict):
             media += lexicon_dict[word]['Media']
             alta += lexicon_dict[word]['Alta']
             pfa += lexicon_dict[word]['PFA']
-            categoria += lexicon_dict[word]['Categoria'] if lexicon_dict[word]['Categoria'] != 'nan' else ''
+            categoria += lexicon_dict[word]['Categoria']+' ' if lexicon_dict[word]['Categoria'] != 'nan' else ''
     total_words = len(words)
     if total_words > 0:
         nula /= total_words
@@ -75,6 +78,53 @@ def lexicon_features(text, lexicon_dict):
         alta /= total_words
         pfa /= total_words
     return nula, baja, media, alta, pfa, categoria
+
+def get_antonyms(word):
+    """
+    Retrieves the antonyms of a given word.
+
+    Parameters:
+    word (str): The word for which antonyms need to be retrieved.
+
+    Returns:
+    list: A list of antonyms of the given word.
+    """
+    antonyms = []
+    for syn in wordnet.synsets(word, lang='spa'):
+        for lemma in syn.lemmas('spa'):
+            if lemma.antonyms():
+                antonyms.append(lemma.antonyms()[0].name())
+    return antonyms
+
+def handle_negation(text):
+    """
+    Transforms negation words in the given text into their antonyms.
+
+    Args:
+        text (str): The input text to be processed.
+
+    Returns:
+        str: The transformed text with negation words replaced by their antonyms.
+    """
+    negation_words = {"no", "nunca", "jamás", "nadie"}  # Spanish negation words
+    doc = nlp(text)
+    transformed_words = []
+    skip_next = False
+    for i, token in enumerate(doc):
+        if skip_next:
+            skip_next = False
+            continue
+        if token.text in negation_words and i + 1 < len(doc):
+            next_word = doc[i + 1].lemma_
+            antonyms = get_antonyms(next_word)
+            if antonyms:
+                transformed_words.append(antonyms[0])
+                skip_next = True
+            else:
+                transformed_words.append(token.text)
+        else:
+            transformed_words.append(token.text)
+    return ' '.join(transformed_words)
 
 def preprocess_text(text, lexicon_dict):
     """
@@ -90,20 +140,16 @@ def preprocess_text(text, lexicon_dict):
     # Lowercase
     text = text.lower()
     # Remove punctuation
-    #text = re.sub(r'[^\w\s]', '', text)
-    # Remove stopwords
-    #text = ' '.join([word for word in text.split() if word not in stop_words])
+    text = re.sub(r'[^\w\s]', '', text)
+    # Handle negation
+    text = handle_negation(text)
     # Lemmatization
     doc = nlp(text)
-    text = ' '.join([token.lemma_ for token in doc])
+    tokens = [token.lemma_ for token in doc]
+    preprocessed_text = ' '.join(tokens)  # Convert list of tokens to a single string
     # Extract lexicon features
-    nula, baja, media, alta, pfa, categoria = lexicon_features(text, lexicon_dict)
-    
-    # Agregar manejo de negacion
-    
-    
-    
-    return text, nula, baja, media, alta, pfa, categoria
+    nula, baja, media, alta, pfa, categoria = lexicon_features(preprocessed_text, lexicon_dict)
+    return preprocessed_text, nula, baja, media, alta, pfa, categoria
 
 def preprocess_dataframe(df, lexicon_dict):
     """
@@ -118,7 +164,7 @@ def preprocess_dataframe(df, lexicon_dict):
         pandas.DataFrame: The preprocessed dataframe with additional columns for the processed text and categories.
     """
     features = df.apply(lambda row: preprocess_text(str(row['Title']) + ' ' + str(row['Opinion']), lexicon_dict), axis=1)
-    df['text'] = features.apply(lambda x: x[0])
+    df['text'] = features.apply(lambda x: x[0])  # Extract the preprocessed text
     df['nula'] = features.apply(lambda x: x[1])
     df['baja'] = features.apply(lambda x: x[2])
     df['media'] = features.apply(lambda x: x[3])
@@ -134,7 +180,7 @@ def main():
 
     # Load data and lexicon, preprocess data, and verify if the data is available in a pickle file
     try:
-        data = pd.read_pickle(f'proccessed_dataframe_{corpus}.pkl')
+        data = pd.read_pickle(f'processed_dataframe_{corpus}.pkl')
         print("Data loaded successfully.")
         print(data.head())
     except FileNotFoundError:
@@ -149,9 +195,8 @@ def main():
         print("Data preprocessed successfully.")
         print(data.head())
 
-        data.to_pickle(f'proccessed_dataframe_{corpus}.pkl')
+        data.to_pickle(f'processed_dataframe_{corpus}.pkl')
         print("Data saved successfully.")
-
 
     # Ensure the expected columns are present
     expected_columns = ['text', 'nula', 'baja', 'media', 'alta', 'pfa']
@@ -163,7 +208,7 @@ def main():
     y = data['Polarity']
 
     # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
 
     # Define the pipeline with feature union
     text_transformer = Pipeline(steps=[
@@ -182,14 +227,14 @@ def main():
     pipeline = ImbPipeline(steps=[
         ('preprocessor', preprocessor),
         ('smote', SMOTE()),
-        ('classifier', LogisticRegression(C=3,solver='lbfgs', random_state=0, max_iter=10000, n_jobs=-1))
+        ('classifier', LogisticRegression(C=3, solver='lbfgs', random_state=0, max_iter=10000, n_jobs=-1))
     ])
 
     # Cross-validation
     cv = KFold(n_splits=5, random_state=0, shuffle=True)
     scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring='f1_macro', n_jobs=-1)
     print(f'Average F1 Macro Score (cross-validation): {scores.mean()}')
-
+    print(X_train.head())
     # Train the model on full training data
     pipeline.fit(X_train, y_train)
 
@@ -199,7 +244,6 @@ def main():
     print(f'Test F1 Macro Score: {f1}')
     print("Classification Report:\n", classification_report(y_test, y_pred))
     print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
-
 
 if __name__ == '__main__':
     main()
