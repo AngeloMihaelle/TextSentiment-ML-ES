@@ -173,6 +173,29 @@ def preprocess_dataframe(df, lexicon_dict):
     df['Categoría'] = features.apply(lambda x: x[6])
     return df
 
+def to_dense(X):
+    """
+    Convert sparse matrix to dense array or series to DataFrame.
+
+    Args:
+        X: Input data (sparse matrix, series, or array).
+
+    Returns:
+        array or DataFrame: Dense representation of the input data.
+    """
+    # Convert sparse matrix to dense array
+    if hasattr(X, 'toarray'):
+        return X.toarray()
+    # Convert series to DataFrame
+    elif isinstance(X, pd.Series):
+        return pd.DataFrame(X)
+   
+    # Convert array to DataFrame
+    elif isinstance(X, np.ndarray):
+        return pd.DataFrame(X)
+    else:
+        raise ValueError("Unsupported input type")
+
 def main():
     # Define the path to the corpus and lexicon
     corpus = 'Rest_Mex_2022.xlsx'
@@ -199,16 +222,20 @@ def main():
         print("Data saved successfully.")
 
     # Ensure the expected columns are present
-    expected_columns = ['text', 'nula', 'baja', 'media', 'alta', 'pfa']
+    expected_columns = ['text', 'nula', 'baja', 'media', 'alta', 'pfa', 'Categoría']
     for column in expected_columns:
         if column not in data.columns:
             raise ValueError(f"Missing column: {column}")
 
-    X = data[['text', 'nula', 'baja', 'media', 'alta', 'pfa']]
+    X = data[['text', 'nula', 'baja', 'media', 'alta', 'pfa', 'Categoría']]
     y = data['Polarity']
 
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+
+    # Convert categorical column to string dtype for proper handling in ColumnTransformer
+    X_train['Categoría'] = X_train['Categoría'].astype(str)
+    X_test['Categoría'] = X_test['Categoría'].astype(str)
 
     # Define the pipeline with feature union
     text_transformer = Pipeline(steps=[
@@ -219,7 +246,7 @@ def main():
     preprocessor = ColumnTransformer(
         transformers=[
             ('text', text_transformer, 'text'),
-            ('numeric', StandardScaler(), ['nula', 'baja', 'media', 'alta', 'pfa'])
+            ('numeric', StandardScaler(), ['nula', 'baja', 'media', 'alta', 'pfa']),
         ]
     )
 
@@ -234,7 +261,7 @@ def main():
     cv = KFold(n_splits=5, random_state=0, shuffle=True)
     scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring='f1_macro', n_jobs=-1)
     print(f'Average F1 Macro Score (cross-validation): {scores.mean()}')
-    print(X_train.head())
+
     # Train the model on full training data
     pipeline.fit(X_train, y_train)
 

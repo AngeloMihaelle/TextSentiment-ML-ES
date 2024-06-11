@@ -6,6 +6,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 import spacy
 
@@ -20,16 +21,9 @@ def preprocess_text(text):
 
 # Load Data using csv library
 data = []
-with open('Rest_Mex_2022.csv', newline='', encoding='utf-8') as csvfile:
-    reader = csv.DictReader(csvfile)
-    i = 0
-    for row in reader:
-        title_opinion = row['Title'] + ' ' + row['Opinion']
-        processed_text = preprocess_text(title_opinion)
-        data.append([processed_text, row['Polarity']])
-        i+=1
-        print(f"Proccessed: {i}")
-
+data = pd.read_excel('Rest_Mex_2022.xlsx')
+#concatenate colums title and content
+data['text'] = str(data['Title'])+ ' ' + str(data['Opinion'])
 # Convert to DataFrame
 df = pd.DataFrame(data, columns=['text', 'Polarity'])
 
@@ -48,6 +42,7 @@ models = {
     'Logistic Regression': LogisticRegression(max_iter=1000),
     'SVM': SVC(),
     'Random Forest': RandomForestClassifier(),
+    'Naive Bayes': MultinomialNB(),
 }
 
 # Training and Evaluation

@@ -7,7 +7,7 @@ import time
 if platform.system() == 'Darwin':  # macOS
     os.system('afplay /System/Library/Sounds/Glass.aiff')
 elif platform.system() == 'Windows':  # Windows
-    winsound.PlaySound('C:\\Windows\\Media\\notify.wav', winsound.SND_FILENAME)
+    winsound.PlaySound('C:\\Windows\\Media\\Ring01.wav', winsound.SND_FILENAME)
 elif platform.system() == 'Linux':  # Linux
     os.system('aplay /usr/share/sounds/freedesktop/stereo/complete.oga')
 
